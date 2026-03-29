@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人備品管理系統 (固定順序版)</title>
+    <style>
+        :root {
+            --primary-color: #5a6d56;
+            --bg-color: #f4f7f1;
+        }
+        body {
+            font-family: "Microsoft JhengHei", sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 10px;
+        }
+        .container {
+            max-width: 950px;
+            margin: 10px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h2 { text-align: center; color: var(--primary-color); margin-top: 0; }
+        
+        /* 操作面板 */
+        .control-panel {
+            background: #eef2ed;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        label { font-size: 0.8em; font-weight: bold; color: #555; }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn-main {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        
+        /* 表格容器與凍結表頭 */
+        .table-container {
+            max-height: 70vh;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background-color: var(--primary-color);
+            color: white;
+            z-index: 10;
+            padding: 12px 5px;
+            font-size: 0.9em;
+        }
+        /* 調整欄位寬度 */
+        th:nth-child(1) { width: 40px; } /* 編號 */
+        th:nth-child(2) { width: 160px; } /* 項目名稱 */
+        th:nth-child(3) { width: 80px; } /* 庫存 */
+        th:nth-child(4) { width: 100px; } /* 最後日期 */
+        
+        td {
+            padding: 10px 5px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+            font-size: 0.95em;
+        }
+        .stock-input {
+            width: 60px;
+            text-align: center;
+            border: 1px dashed #aaa;
+            background: #fffef0;
+            padding: 5px;
+        }
+        .low-stock { color: #d9534f; font-weight: bold; }
+        .del-btn { background: #eee; border: none; padding: 4px 8px; cursor: pointer; color: #999; border-radius: 3px; }
+        .del-btn:hover { background: #f2dede; color: #a94442; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🏠 備品庫存管理</h2>
+    
+    <div class="control-panel">
+        <div class="form-row">
+            <div>
+                <label>選擇備品</label>
+                <select id="itemSelect"></select>
+            </div>
+            <div>
+                <label>日期</label>
+                <input type="date" id="recordDate">
+            </div>
+            <div>
+                <label>動作</label>
+                <select id="actionType">
+                    <option value="buy">購買 (+)</option>
+                    <option value="use">領用 (-)</option>
+                </select>
+            </div>
+            <div>
+                <label>數量</label>
+                <input type="number" id="quantity" value="1">
+            </div>
+        </div>
+        <button class="btn-main" onclick="addRecord()">更新紀錄</button>
+        
+        <div class="form-row" style="margin-top: 15px; grid-template-columns: 3fr 1fr;">
+            <input type="text" id="newItemName" placeholder="新增其他備品名稱...">
+            <button class="btn-main" style="background:#8e9e8c;" onclick="addNewItem()">新增項目</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>項目名稱</th>
+                    <th>目前庫存</th>
+                    <th>最後日期</th>
+                    <th>狀態</th>
+                    <th>管理</th>
+                </tr>
+            </thead>
+            <tbody id="inventoryBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // 嚴格依照你提供的順序
+    const defaultItems = [
+        "口罩", "棉花棒", "痘痘貼", "衛生紙(小)", "衛生紙(中，旅行用抽取式)", "衛生紙(大)",
+        "濕紙巾", "衛生棉(日用)", "衛生棉(夜用)", "牙線", "牙刷", "牙膏", 
+        "洗面乳", "沐浴乳", "洗髮精", "潤髮乳", "除毛刀", "護唇膏", 
+        "護手霜", "乳液(臉)", "乳液(身體)", "護髮油", "防曬", "洗衣精"
+    ];
+
+    // 從 LocalStorage 載入，若無則使用預設
+    let items = JSON.parse(localStorage.getItem('myItems')) || defaultItems;
+    let inventory = JSON.parse(localStorage.getItem('myInventory')) || {};
+
+    function init() {
+        renderDropdown();
+        document.getElementById('recordDate').valueAsDate = new Date();
+        renderTable();
+    }
+
+    function renderDropdown() {
+        const select = document.getElementById('itemSelect');
+        select.innerHTML = '';
+        items.forEach(item => {
+            let opt = document.createElement('option');
+            opt.value = item;
+            opt.innerHTML = item;
+            select.appendChild(opt);
+            if (!inventory[item]) {
+                inventory[item] = { stock: 0, lastDate: '-' };
+            }
+        });
+    }
+
+    function addNewItem() {
+        const name = document.getElementById('newItemName').value.trim();
+        if (name && !items.includes(name)) {
+            items.push(name);
+            inventory[name] = { stock: 0, lastDate: '-' };
+            localStorage.setItem('myItems', JSON.stringify(items));
+            document.getElementById('newItemName').value = '';
+            renderDropdown();
+            renderTable();
+        }
+    }
+
+    function addRecord() {
+        const name = document.getElementById('itemSelect').value;
+        const date = document.getElementById('recordDate').value;
+        const type = document.getElementById('actionType').value;
+        const qty = parseInt(document.getElementById('quantity').value) || 0;
+
+        if (type === 'buy') {
+            inventory[name].stock += qty;
+        } else {
+            inventory[name].stock = Math.max(0, inventory[name].stock - qty);
+        }
+        inventory[name].lastDate = date;
+        saveAndRender();
+    }
+
+    function updateStockDirectly(name, newStock) {
+        const val = parseInt(newStock);
+        if (!isNaN(val)) {
+            inventory[name].stock = val;
+            saveAndRender();
+        }
+    }
+
+    function deleteItem(index) {
+        const name = items[index];
+        if (confirm(`確定要刪除第 ${index+1} 項「${name}」嗎？`)) {
+            items.splice(index, 1);
+            delete inventory[name];
+            localStorage.setItem('myItems', JSON.stringify(items));
+            renderDropdown();
+            saveAndRender();
+        }
+    }
+
+    function saveAndRender() {
+        localStorage.setItem('myInventory', JSON.stringify(inventory));
+        renderTable();
+    }
+
+    function renderTable() {
+        const body = document.getElementById('inventoryBody');
+        body.innerHTML = '';
+        
+        items.forEach((item, index) => {
+            const data = inventory[item];
+            const isLow = data.stock <= 1;
+            
+            const row = `<tr>
+                <td style="color:#999; font-size:0.8em;">${index + 1}</td>
+                <td style="text-align:left;">${item}</td>
+                <td>
+                    <input type="number" class="stock-input" 
+                           value="${data.stock}" 
+                           onchange="updateStockDirectly('${item}', this.value)">
+                </td>
+                <td style="font-size: 0.8em; color: #888;">${data.lastDate}</td>
+                <td class="${isLow ? 'low-stock' : ''}">${isLow ? '需補貨' : '充足'}</td>
+                <td><button class="del-btn" onclick="deleteItem(${index})">✕</button></td>
+            </tr>`;
+            body.innerHTML += row;
+        });
+    }
+
+    init();
+</script>
+
+</body>
+</html>
